@@ -47,8 +47,6 @@ export const action = async ({ request }: ActionArgs) => {
     processedAlbums
   );
 
-  console.log("addedPosts: ", JSON.stringify(addedPosts, null, 4));
-
   return typedjson(addedPosts);
 };
 

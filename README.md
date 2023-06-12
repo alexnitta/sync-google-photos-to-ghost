@@ -1,6 +1,6 @@
 # sync-google-photos-to-ghost
 
-A simple application that syncs Google Photos albums to Ghost blog posts.
+A Remix application that syncs Google Photos albums to Ghost blog posts.
 
 For more on how this works, run the app and view the [dashboard](http://localhost:3000/dashboard) after signing in, or head to [./app/routes/dashboard.tsx](./app/routes/dashboard.tsx).
 

@@ -28,7 +28,8 @@
     "react-dom": "^18.2.0",
     "remix-auth": "^3.4.0",
     "remix-auth-google": "1.2.0",
-    "remix-typedjson": "^0.1.7"
+    "remix-typedjson": "^0.1.7",
+    "zod": "^3.22.2"
   },
   "devDependencies": {
     "@remix-run/dev": "^1.17.0",

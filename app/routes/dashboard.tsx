@@ -1,9 +1,13 @@
 import { Form } from "@remix-run/react";
 import type { ActionArgs } from "@remix-run/node";
 import { typedjson, useTypedActionData } from "remix-typedjson";
+import { useState } from "react";
 
 import { authenticator } from "~/services/auth.server";
 import { processAlbums, createBlogPosts } from "~/utils";
+import type { GooglePhotosAlbum } from "~/types";
+
+import { albumsSchema } from "./api.get-albums";
 
 /**
  * Finds any albums from Google Photos that have not yet been uploaded to the Ghost blog, then
@@ -52,6 +56,7 @@ export const action = async ({ request }: ActionArgs) => {
 
 export default function Index() {
   const addedPosts = useTypedActionData<typeof action>();
+  const [albums, setAlbums] = useState<GooglePhotosAlbum[]>([]);
 
   console.log("addedPosts: ", JSON.stringify(addedPosts, null, 4));
 
@@ -85,6 +90,37 @@ export default function Index() {
       <Form method="post">
         <button type="submit">Sync Now</button>
       </Form>
+      <h2>Albums</h2>
+      <button
+        type="submit"
+        onClick={() => {
+          fetch("/api/get-albums").then(res => {
+            res
+              .json()
+              .then(data => {
+                try {
+                  albumsSchema.parse(data);
+                  setAlbums(data);
+                } catch (e) {
+                  alert(`Failed to parse albums; error:\n${e}`);
+                }
+              })
+              .catch(e => {
+                console.log(e);
+              });
+          });
+        }}
+      >
+        Get albums
+      </button>
+      {albums.length < 1 && <p>No albums have been fetched.</p>}
+      {albums.length > 0 && (
+        <ul>
+          {albums.map(album => (
+            <li key={album.id}>{album.title}</li>
+          ))}
+        </ul>
+      )}
       <Form method="post" action="/sign-out" style={{ marginBlockStart: 20 }}>
         <button type="submit">Sign Out</button>
       </Form>

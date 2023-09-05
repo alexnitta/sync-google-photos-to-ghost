@@ -98,3 +98,12 @@ export interface CreatedPostDetails extends PostDetails {
 }
 
 export type AlbumPostResult = Post & CreatedPostDetails;
+
+export type AlbumCSVRow = Pick<AlbumPostResult, "albumId" | "title" | "url">;
+
+export interface ImageCSVRow extends GooglePhotosMediaItem {
+  albumId: string;
+  ghostImageURL: null | string;
+}
+
+export type AlbumPostCSVRow = AlbumCSVRow & { images: ImageCSVRow[] };

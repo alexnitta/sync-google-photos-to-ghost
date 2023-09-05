@@ -25,6 +25,7 @@
     "isbot": "^3.6.8",
     "jsonwebtoken": "^9.0.0",
     "react": "^18.2.0",
+    "react-csv-downloader": "^2.9.1",
     "react-dom": "^18.2.0",
     "remix-auth": "^3.4.0",
     "remix-auth-google": "1.2.0",

@@ -5,7 +5,10 @@ import type {
   PostDetails,
   PostWithProcessedImages,
   AlbumPostResult,
+  AlbumPostCSVRow,
 } from "~/types";
+
+import { albumPostsToCSVData } from "./albumPostsToCSVData";
 
 const addPostForAlbum = async (
   api: GhostAdminAPIMethods,
@@ -73,7 +76,7 @@ export const createBlogPosts = async ({
   ghostAdminAPIKey,
   ghostAdminAPIURL,
   postsWithImages,
-}: CreateBlogPostsInput): Promise<AlbumPostResult[]> => {
+}: CreateBlogPostsInput): Promise<AlbumPostCSVRow[]> => {
   const api = new GhostAdminAPI({
     key: ghostAdminAPIKey,
     url: ghostAdminAPIURL,
@@ -105,5 +108,5 @@ export const createBlogPosts = async ({
     return acc;
   }, [] as AlbumPostResult[]);
 
-  return addedPosts;
+  return addedPosts.map(albumPostsToCSVData);
 };

@@ -7,6 +7,7 @@ import {
   useTypedLoaderData,
 } from "remix-typedjson";
 import { useDeepCompareCallback } from "use-deep-compare";
+import CSVDownloader from "react-csv-downloader";
 
 import { authenticator } from "~/services/auth.server";
 import { uploadToGhost, addMediaItems, createBlogPosts } from "~/utils";
@@ -152,7 +153,7 @@ export default function Index() {
   return (
     <>
       <Form method="post">
-        <h1>Google Photos Albums</h1>
+        <h1>Import Google Photos Albums</h1>
         <Form
           method="post"
           action="/sign-out"
@@ -163,48 +164,58 @@ export default function Index() {
         <button
           type="submit"
           onClick={fetchAlbums}
-          style={{ marginBottom: 20 }}
+          style={{ marginBottom: 10 }}
         >
           Refresh album list
         </button>
+        <h2>Google Photos Albums</h2>
         {loadingAlbums && <p>Loading albums...</p>}
         {!loadingAlbums && (
           <>
             {albums.length < 1 && <p>No albums were found.</p>}
             {albums.length > 0 && (
-              <table
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "80px 400px 400px",
-                }}
-              >
-                <tr style={{ display: "contents" }}>
-                  <th>Import</th>
-                  <th>Album Title</th>
-                  <th>as Blog Post Title</th>
-                </tr>
-                {albums.map((album, index) => (
-                  <tr key={album.id} style={{ display: "contents" }}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        value={album.id}
-                        name={`${index}.albumId`}
-                        id={`${index}.id`}
-                      ></input>
-                    </td>
-                    <td>
-                      <label htmlFor={album.id}>{album.title}</label>
-                    </td>
-                    <td style={{ width: "100%" }}>
-                      <PostTitle album={album} index={index} />
-                    </td>
+              <>
+                <p>
+                  Each album that you select from the list below will be
+                  imported as a new Ghost blog post. You can edit the blog post
+                  title in the right column.
+                </p>
+
+                <table
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "80px 400px 400px",
+                  }}
+                >
+                  <tr style={{ display: "contents" }}>
+                    <th>Import</th>
+                    <th>Album Title</th>
+                    <th>as Blog Post Title</th>
                   </tr>
-                ))}
-              </table>
+                  {albums.map((album, index) => (
+                    <tr key={album.id} style={{ display: "contents" }}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          value={album.id}
+                          name={`${index}.albumId`}
+                          id={`${index}.id`}
+                        ></input>
+                      </td>
+                      <td>
+                        <label htmlFor={album.id}>{album.title}</label>
+                      </td>
+                      <td style={{ width: "100%" }}>
+                        <PostTitle album={album} index={index} />
+                      </td>
+                    </tr>
+                  ))}
+                </table>
+              </>
             )}
           </>
         )}
+
         <p>
           To create blog posts from the currently selected albums, click
           "Submit."
@@ -222,19 +233,40 @@ export default function Index() {
           <table
             style={{
               display: "grid",
-              gridTemplateColumns: "400px 100px",
+              gridTemplateColumns: "400px 100px 160px",
             }}
           >
             <tr style={{ display: "contents" }}>
               <th>Blog Post</th>
-              <th>CSV Report</th>
+              <th>Album</th>
+              <th>Images</th>
             </tr>
-            {albumPostResults.map((result, index) => (
-              <tr key={result.albumId} style={{ display: "contents" }}>
+            {albumPostResults.map(({ albumId, url, title, images }, index) => (
+              <tr key={albumId} style={{ display: "contents" }}>
                 <td style={{ width: "100%" }}>
-                  <a href={result.url}>{result.title}</a>
+                  <a href={url} target="_blank" rel="noreferrer">
+                    {title}
+                  </a>
                 </td>
-                <td>Download</td>
+                <td>
+                  <CSVDownloader
+                    filename={`album_${albumId}`}
+                    extension=".csv"
+                    datas={[{ albumId, url, title }]}
+                  >
+                    <button>Album CSV</button>
+                  </CSVDownloader>
+                </td>
+                <td>
+                  <CSVDownloader
+                    filename={`album_${albumId}_images`}
+                    extension=".csv"
+                    // @ts-ignore
+                    datas={images}
+                  >
+                    <button>{`Images CSV: ${images.length} rows`}</button>
+                  </CSVDownloader>
+                </td>
               </tr>
             ))}
           </table>

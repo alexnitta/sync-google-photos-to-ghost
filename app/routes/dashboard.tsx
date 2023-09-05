@@ -1,13 +1,14 @@
-import { useState } from "react";
-import { Form, useNavigate, useNavigation } from "@remix-run/react";
-import type { ActionArgs } from "@remix-run/node";
+import { Form, useNavigation } from "@remix-run/react";
+import type { ActionArgs, LoaderArgs } from "@remix-run/node";
+import axios, { AxiosError } from "axios";
 import {
   typedjson,
   useTypedActionData,
   useTypedLoaderData,
+  redirect,
 } from "remix-typedjson";
-import { useDeepCompareCallback } from "use-deep-compare";
 import CSVDownloader from "react-csv-downloader";
+import { z } from "zod";
 
 import { authenticator } from "~/services/auth.server";
 import { uploadToGhost, addMediaItems, createBlogPosts } from "~/utils";
@@ -18,9 +19,72 @@ import type {
 } from "~/types";
 import { PostTitle } from "~/components";
 
-import { albumsSchema, loader } from "./api.get-albums";
+export const albumsSchema = z.array(
+  z.object({
+    id: z.string(),
+    title: z.string(),
+  })
+);
 
-export { loader };
+/**
+ * Docs: https://developers.google.com/photos/library/reference/rest/v1/albums/list
+ * @param args {@link LoaderArgs}
+ * @returns All albums from Google Photos
+ */
+export const loader = async ({ request }: LoaderArgs) => {
+  const user = await authenticator.isAuthenticated(request, {
+    failureRedirect: "/sign-out",
+  });
+
+  const { accessToken } = user;
+
+  try {
+    const response = await axios({
+      url: `https://photoslibrary.googleapis.com/v1/albums`,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const albums = (response?.data?.albums ?? []).reduce(
+      (
+        acc: GooglePhotosAlbum[],
+        curr: Record<string, unknown>
+      ): GooglePhotosAlbum[] => {
+        if (typeof curr?.id === "string" && typeof curr?.title === "string") {
+          acc.push({ id: curr.id, title: curr.title });
+        }
+
+        return acc;
+      },
+      [] as GooglePhotosAlbum[]
+    );
+
+    const validatedAlbums = albumsSchema.safeParse(albums);
+
+    if (!validatedAlbums.success) {
+      return typedjson(
+        {
+          message: "Failed to validate albums from Google Photos",
+        },
+        { status: 500 }
+      );
+    }
+
+    return typedjson(validatedAlbums.data);
+  } catch (e) {
+    if (e instanceof AxiosError && e.message.includes("401")) {
+      return redirect("/sign-out");
+    }
+
+    return typedjson(
+      {
+        message: "Failed to get albums from Google Photos",
+      },
+      { status: 500 }
+    );
+  }
+};
 
 /**
  * Create Ghost blog posts from Google Photos albums.
@@ -111,49 +175,14 @@ export const action = async ({ request }: ActionArgs) => {
 
 export default function Index() {
   const albumPostResults = useTypedActionData<typeof action>();
-  const initialAlbums = useTypedLoaderData<
-    typeof loader
-  >() as GooglePhotosAlbum[];
-  const [loadingAlbums, setLoadingAlbums] = useState(false);
-  const [albums, setAlbums] = useState<GooglePhotosAlbum[]>(initialAlbums);
+  const albums = useTypedLoaderData<typeof loader>() as GooglePhotosAlbum[];
 
-  const navigate = useNavigate();
   const navigation = useNavigation();
-
-  const fetchAlbums = useDeepCompareCallback(() => {
-    setLoadingAlbums(true);
-
-    fetch("/api/get-albums").then(res => {
-      if (res.status === 401) {
-        fetch("/sign-out", { method: "POST" }).then(() => {
-          navigate("/");
-          alert("Your session has expired. Please sign in again.");
-        });
-      } else {
-        res
-          .json()
-          .then(data => {
-            try {
-              albumsSchema.parse(data);
-              setAlbums(data);
-            } catch (e) {
-              console.log(`Failed to parse albums; error:\n${e}`);
-            }
-            setLoadingAlbums(false);
-          })
-          .catch(e => {
-            console.log(e);
-          });
-
-        setLoadingAlbums(false);
-      }
-    });
-  }, [navigate]);
 
   return (
     <>
       <Form method="post">
-        <h1>Import Google Photos Albums</h1>
+        <h1>Sync Google Photos Albums to Ghost Blog Posts</h1>
         <Form
           method="post"
           action="/sign-out"
@@ -161,61 +190,49 @@ export default function Index() {
         >
           <button type="submit">Sign Out</button>
         </Form>
-        <button
-          type="submit"
-          onClick={fetchAlbums}
-          style={{ marginBottom: 10 }}
-        >
-          Refresh album list
-        </button>
         <h2>Google Photos Albums</h2>
-        {loadingAlbums && <p>Loading albums...</p>}
-        {!loadingAlbums && (
+        {albums.length < 1 && <p>No albums were found.</p>}
+        {albums.length > 0 && (
           <>
-            {albums.length < 1 && <p>No albums were found.</p>}
-            {albums.length > 0 && (
-              <>
-                <p>
-                  Each album that you select from the list below will be
-                  imported as a new Ghost blog post. You can edit the blog post
-                  title in the right column.
-                </p>
-
-                <table
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "80px 400px 400px",
-                  }}
-                >
-                  <tr style={{ display: "contents" }}>
-                    <th>Import</th>
-                    <th>Album Title</th>
-                    <th>as Blog Post Title</th>
+            <p>
+              Each album that you select from the list below will be imported as
+              a new Ghost blog post. You can edit the blog post title in the
+              right column.
+            </p>
+            <div style={{ width: 880 }}>
+              <table
+                className="grid-table"
+                style={{
+                  gridTemplateColumns: "80px 400px 400px",
+                }}
+              >
+                <tr style={{ display: "contents" }}>
+                  <th>Import</th>
+                  <th>Album Title</th>
+                  <th>as Blog Post Title</th>
+                </tr>
+                {albums.map((album, index) => (
+                  <tr key={album.id} style={{ display: "contents" }}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        value={album.id}
+                        name={`${index}.albumId`}
+                        id={`${index}.id`}
+                      ></input>
+                    </td>
+                    <td>
+                      <label htmlFor={album.id}>{album.title}</label>
+                    </td>
+                    <td style={{ width: "100%", paddingRight: 10 }}>
+                      <PostTitle album={album} index={index} />
+                    </td>
                   </tr>
-                  {albums.map((album, index) => (
-                    <tr key={album.id} style={{ display: "contents" }}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          value={album.id}
-                          name={`${index}.albumId`}
-                          id={`${index}.id`}
-                        ></input>
-                      </td>
-                      <td>
-                        <label htmlFor={album.id}>{album.title}</label>
-                      </td>
-                      <td style={{ width: "100%" }}>
-                        <PostTitle album={album} index={index} />
-                      </td>
-                    </tr>
-                  ))}
-                </table>
-              </>
-            )}
+                ))}
+              </table>
+            </div>
           </>
         )}
-
         <p>
           To create blog posts from the currently selected albums, click
           "Submit."
@@ -230,46 +247,50 @@ export default function Index() {
       {albumPostResults && albumPostResults?.length > 0 && (
         <>
           <h2>Results</h2>
-          <table
-            style={{
-              display: "grid",
-              gridTemplateColumns: "400px 100px 160px",
-            }}
-          >
-            <tr style={{ display: "contents" }}>
-              <th>Blog Post</th>
-              <th>Album</th>
-              <th>Images</th>
-            </tr>
-            {albumPostResults.map(({ albumId, url, title, images }, index) => (
-              <tr key={albumId} style={{ display: "contents" }}>
-                <td style={{ width: "100%" }}>
-                  <a href={url} target="_blank" rel="noreferrer">
-                    {title}
-                  </a>
-                </td>
-                <td>
-                  <CSVDownloader
-                    filename={`album_${albumId}`}
-                    extension=".csv"
-                    datas={[{ albumId, url, title }]}
-                  >
-                    <button>Album CSV</button>
-                  </CSVDownloader>
-                </td>
-                <td>
-                  <CSVDownloader
-                    filename={`album_${albumId}_images`}
-                    extension=".csv"
-                    // @ts-ignore
-                    datas={images}
-                  >
-                    <button>{`Images CSV: ${images.length} rows`}</button>
-                  </CSVDownloader>
-                </td>
+          <div style={{ width: 660 }}>
+            <table
+              className="grid-table"
+              style={{
+                gridTemplateColumns: "400px 100px 160px",
+              }}
+            >
+              <tr style={{ display: "contents" }}>
+                <th>Blog Post</th>
+                <th>Album</th>
+                <th>Images</th>
               </tr>
-            ))}
-          </table>
+              {albumPostResults.map(
+                ({ albumId, url, title, images }, index) => (
+                  <tr key={albumId} style={{ display: "contents" }}>
+                    <td style={{ width: "100%" }}>
+                      <a href={url} target="_blank" rel="noreferrer">
+                        {title}
+                      </a>
+                    </td>
+                    <td>
+                      <CSVDownloader
+                        filename={`album_${albumId}`}
+                        extension=".csv"
+                        datas={[{ albumId, url, title }]}
+                      >
+                        <button>Album CSV</button>
+                      </CSVDownloader>
+                    </td>
+                    <td>
+                      <CSVDownloader
+                        filename={`album_${albumId}_images`}
+                        extension=".csv"
+                        // @ts-ignore
+                        datas={images}
+                      >
+                        <button>{`Images CSV: ${images.length} rows`}</button>
+                      </CSVDownloader>
+                    </td>
+                  </tr>
+                )
+              )}
+            </table>
+          </div>
         </>
       )}
     </>

@@ -16,7 +16,7 @@ export const PostTitle = ({ album, index }: PostTitleProps) => {
       id={`${index}.postTitle`}
       value={title}
       onChange={e => setTitle(e.target.value)}
-      style={{ width: "100%" }}
+      style={{ width: "100%", marginRight: 20 }}
     ></input>
   );
 };

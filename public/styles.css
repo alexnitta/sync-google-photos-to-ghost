@@ -1,0 +1,19 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+table.grid-table {
+  display: grid;
+  background-color: black;
+  grid-row-gap: 1px;
+  grid-column-gap: 0px;
+}
+
+table.grid-table th {
+  background-color: white;
+}
+
+table.grid-table td {
+  background-color: white;
+}

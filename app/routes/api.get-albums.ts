@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { typedjson } from "remix-typedjson";
 import type { LoaderArgs } from "@remix-run/node";
 import { z } from "zod";
@@ -34,7 +34,7 @@ export const loader = async ({ request }: LoaderArgs) => {
       },
     });
 
-    const albums = response.data.albums.reduce(
+    const albums = (response?.data?.albums ?? []).reduce(
       (
         acc: GooglePhotosAlbum[],
         curr: Record<string, unknown>
@@ -51,9 +51,9 @@ export const loader = async ({ request }: LoaderArgs) => {
     const validatedAlbums = albumsSchema.safeParse(albums);
 
     if (!validatedAlbums.success) {
-      throw typedjson(
+      return typedjson(
         {
-          error: "Failed to validate albums from Google Photos",
+          message: "Failed to validate albums from Google Photos",
         },
         { status: 500 }
       );
@@ -61,6 +61,22 @@ export const loader = async ({ request }: LoaderArgs) => {
 
     return typedjson(validatedAlbums.data);
   } catch (e) {
-    throw new Error(`Failed to get Google Photos albums due to error:\n${e}`);
+    if (e instanceof AxiosError) {
+      return typedjson(
+        {
+          message: e.message,
+        },
+        {
+          status: e.message.includes("401") ? 401 : 500,
+        }
+      );
+    }
+
+    return typedjson(
+      {
+        message: "Failed to get albums from Google Photos",
+      },
+      { status: 500 }
+    );
   }
 };

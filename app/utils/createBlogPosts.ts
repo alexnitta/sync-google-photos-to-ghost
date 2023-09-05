@@ -2,27 +2,36 @@ import GhostAdminAPI from "@tryghost/admin-api";
 
 import type {
   GhostAdminAPIMethods,
-  Post,
   PostDetails,
-  AlbumWithProcessedImages,
+  PostWithProcessedImages,
+  AlbumPostResult,
 } from "~/types";
 
 const addPostForAlbum = async (
   api: GhostAdminAPIMethods,
   postDetails: PostDetails
-): Promise<Post> => {
-  const { cleanedTitle, elements } = postDetails;
+): Promise<AlbumPostResult> => {
+  const { title, elements, processedImages, albumId } = postDetails;
 
   try {
-    return api.posts.add(
+    const post = await api.posts.add(
       {
-        title: cleanedTitle,
+        title,
         html: elements.join(""),
       },
       {
         source: "html",
       }
     );
+
+    console.log("post: ", JSON.stringify(post, null, 4));
+
+    return {
+      albumId,
+      elements,
+      processedImages,
+      ...post,
+    };
   } catch (e) {
     let message = "";
     if (e instanceof Error) {
@@ -33,8 +42,8 @@ const addPostForAlbum = async (
   }
 };
 
-const getPostDetails = (album: AlbumWithProcessedImages): PostDetails => {
-  const { cleanedTitle, processedImages } = album;
+const getPostDetails = (post: PostWithProcessedImages): PostDetails => {
+  const { postTitle, processedImages } = post;
 
   const elements = processedImages.map(processedImage => {
     const img = `<img src="${processedImage.ghostImageURL}" />`;
@@ -51,24 +60,29 @@ const getPostDetails = (album: AlbumWithProcessedImages): PostDetails => {
     return img;
   });
 
-  return { cleanedTitle, elements };
+  return { ...post, title: postTitle, elements };
 };
 
-export const createBlogPosts = async (
-  ghostAdminAPIKey: string,
-  ghostAdminAPIURL: string,
-  processedAlbums: AlbumWithProcessedImages[]
-): Promise<Post[]> => {
-  console.log("ghostAdminAPIKey: ", JSON.stringify(ghostAdminAPIKey, null, 4));
-  console.log("ghostAdminAPIURL: ", JSON.stringify(ghostAdminAPIURL, null, 4));
+interface CreateBlogPostsInput {
+  ghostAdminAPIKey: string;
+  ghostAdminAPIURL: string;
+  postsWithImages: PostWithProcessedImages[];
+}
 
+export const createBlogPosts = async ({
+  ghostAdminAPIKey,
+  ghostAdminAPIURL,
+  postsWithImages,
+}: CreateBlogPostsInput): Promise<AlbumPostResult[]> => {
   const api = new GhostAdminAPI({
     key: ghostAdminAPIKey,
     url: ghostAdminAPIURL,
     version: "v5.0",
   });
 
-  const postDetails = processedAlbums.map(getPostDetails);
+  const postDetails = postsWithImages.map(getPostDetails);
+
+  console.log("postDetails: ", JSON.stringify(postDetails, null, 4));
 
   const addPostPromises = postDetails.map(postDetails =>
     addPostForAlbum(api, postDetails)
@@ -89,7 +103,7 @@ export const createBlogPosts = async (
     }
 
     return acc;
-  }, [] as Post[]);
+  }, [] as AlbumPostResult[]);
 
   return addedPosts;
 };

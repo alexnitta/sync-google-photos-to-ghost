@@ -72,7 +72,29 @@ export interface GhostAdminAPIMethods {
   posts: GhostAdminAPIPosts;
 }
 
-export interface PostDetails {
-  cleanedTitle: string;
+export type CreatePostDetail = {
+  postTitle: string;
+  albumId: string;
+};
+
+export type PartialCreatePostDetail = Partial<CreatePostDetail>;
+
+export interface CreatePostDetailWithMediaItems extends CreatePostDetail {
+  mediaItems: GooglePhotosMediaItem[];
+}
+
+export interface PostWithProcessedImages extends CreatePostDetail {
+  processedImages: ProcessedImage[];
+}
+
+export interface PostDetails
+  extends Omit<PostWithProcessedImages, "postTitle"> {
+  title: string;
   elements: string[];
 }
+
+export interface CreatedPostDetails extends PostDetails {
+  albumId: string;
+}
+
+export type AlbumPostResult = Post & CreatedPostDetails;

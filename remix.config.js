@@ -5,7 +5,7 @@ module.exports = {
   // assetsBuildDirectory: "public/build",
   // serverBuildPath: "build/index.js",
   // publicPath: "/build/",
-  serverDependenciesToBundle: ["axios"],
+  serverDependenciesToBundle: ["axios", "p-queue", "p-timeout"],
   future: {
     v2_errorBoundary: true,
     v2_headers: true,

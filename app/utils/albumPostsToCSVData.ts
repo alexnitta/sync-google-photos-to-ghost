@@ -1,4 +1,4 @@
-import type { AlbumPostResult, AlbumPostCSVRow } from "~/types";
+import type { AlbumPostResult, AlbumPostCSVRow, ImageCSVRow } from "~/types";
 
 /**
  * Maps an {@link AlbumPostResult} to an {@link AlbumPostCSVRow}
@@ -8,11 +8,29 @@ import type { AlbumPostResult, AlbumPostCSVRow } from "~/types";
 export const albumPostsToCSVData = (
   albumPostResult: AlbumPostResult
 ): AlbumPostCSVRow => {
-  const { albumId, title, url, processedImages } = albumPostResult;
+  const { albumId, title, processedImages, state } = albumPostResult;
+  const url = state === "success" ? albumPostResult.url : undefined;
 
-  const images = processedImages.map(processedImage => {
-    const { mediaItem, ghostImageURL } = processedImage;
-    const { id, baseUrl, filename, mimeType, description } = mediaItem;
+  const images = processedImages.map((processedImage): ImageCSVRow => {
+    const {
+      mediaItem: { id, baseUrl, filename, mimeType, description },
+      downloadImageResult,
+      uploadImageResult,
+    } = processedImage;
+    const uploadState = uploadImageResult?.state ?? "unknown";
+    const uploadError =
+      uploadImageResult?.state === "error"
+        ? uploadImageResult?.error
+        : undefined;
+    const downloadState = downloadImageResult?.state ?? "unknown";
+    const downloadError =
+      downloadImageResult?.state === "error"
+        ? downloadImageResult?.error
+        : undefined;
+    const ghostImageURL =
+      uploadImageResult?.state === "success"
+        ? uploadImageResult?.ghostImageURL
+        : undefined;
 
     return {
       id,
@@ -21,6 +39,10 @@ export const albumPostsToCSVData = (
       description,
       mimeType,
       baseUrl,
+      downloadState,
+      downloadError,
+      uploadState,
+      uploadError,
       ghostImageURL,
     };
   });
@@ -30,5 +52,6 @@ export const albumPostsToCSVData = (
     title,
     url,
     images,
+    state,
   };
 };

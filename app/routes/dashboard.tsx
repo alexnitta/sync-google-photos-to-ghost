@@ -162,6 +162,12 @@ export const action = async ({ request }: ActionArgs) => {
     ghostAdminAPIKey,
     ghostAdminAPIURL,
     detailsWithMediaItems,
+    // Max display height in the blog is about 1000px, and if the pixel density is 3x, we need
+    // max height of 3 x 1000 = 3000px
+    imageMaxHeight: 3000,
+    // Max display width in the blog is 720px, and if the pixel density is 3x, we need
+    // max width of 3 x 720 = 2160px
+    imageMaxWidth: 2160,
   });
 
   const albumPostResults = await createBlogPosts({
@@ -242,7 +248,13 @@ export default function Index() {
         </button>
       </Form>
       {navigation.state === "submitting" && (
-        <p>Processing request, please wait...</p>
+        <>
+          <p>Processing request, please wait...</p>
+          <p>
+            This can take quite a long time if you have selected an album with
+            lots of images.
+          </p>
+        </>
       )}
       {albumPostResults && albumPostResults?.length > 0 && (
         <>

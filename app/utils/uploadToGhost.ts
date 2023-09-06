@@ -1,61 +1,114 @@
 import axios from "axios";
+import type { AxiosError } from "axios";
 import FormData from "form-data";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import path from "path";
+import PQueue from "p-queue";
 
 import type {
   GooglePhotosMediaItem,
   CreatePostDetailWithMediaItems,
   ProcessedImage,
   PostWithProcessedImages,
+  DownloadImageResult,
+  UploadImageResult,
+  DownloadImageSuccess,
 } from "~/types";
 
 const imageDirectory = path.resolve(__dirname, "../_tmp_images");
 
+/** If this app were serving more than one user, we would want
+ * to set up the queues on a per-user basis, but we don't need to do that yet.
+ */
+
+/**
+ * We only process one album at a time.
+ */
+const albumQueue = new PQueue({ concurrency: 1 });
+/**
+ * Within the single album that is being processed, we process up to 5 images at a time, but we
+ * throttle the start of each image processing on a 20ms interval. If there is some rate limiting
+ * happening in the Ghost storage backend, this should help avoid hitting the rate limit.
+ */
+const imageQueue = new PQueue({
+  concurrency: 5,
+  interval: 20,
+  intervalCap: 1,
+});
+
+interface DownloadImageToFileInput {
+  /**
+   * The Google Photos access token
+   */
+  accessToken: string;
+  /**
+   * The MediaItem from a Google Photos album
+   */
+  mediaItem: GooglePhotosMediaItem;
+  /**
+   * The max height to use when downloading the image from Google Photos
+   */
+  imageMaxHeight: number;
+  /**
+   * The max width to use when downloading the image from Google Photos
+   */
+  imageMaxWidth: number;
+}
+
 /**
  * Downloads an image from a MediaItem in a Google Photos album to a file in the local filesystem
- * @param accessToken the Google Photos access token
+ * @param accessToken
  * @param mediaItem the MediaItem from a Google Photos album
- * @returns a Promise that resolves to an object containing:
- *  - `imagePath`: a string which is the path of the downloaded image
- *  - `filenameJPEG`: a string which is the filename, but coerced (if necessary) to use .jpg or
- *    .jpeg file extension
+ * @returns a Promise that resolves to a {@link DownloadImageResult}
  */
-const downloadImageToFile = (
-  accessToken: string,
-  mediaItem: GooglePhotosMediaItem
-): Promise<{ imagePath: string; filenameJPEG: string }> =>
-  new Promise((resolve, reject) => {
+const downloadImageToFile = ({
+  accessToken,
+  imageMaxHeight,
+  imageMaxWidth,
+  mediaItem,
+}: DownloadImageToFileInput): Promise<DownloadImageResult> =>
+  new Promise(resolve => {
+    let filenameJPEG = mediaItem.filename;
+
+    if (!mediaItem.filename.toLowerCase().match(/(jpg|jpeg)/)) {
+      filenameJPEG = mediaItem.filename.replace(/\.[^/.]+$/, ".jpg");
+    }
+
+    const imagePath = path.join(imageDirectory, filenameJPEG);
+    const { id } = mediaItem;
+
     // Download image from Google Photos using baseUrl
     // https://developers.google.com/photos/library/guides/access-media-items#image-base-urls
     axios({
       method: "get",
-      url: `${mediaItem.baseUrl}=d`,
+      url: `${mediaItem.baseUrl}=w${imageMaxWidth}-h${imageMaxHeight}`,
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
       responseType: "stream",
     })
       .then(response => {
-        let filenameJPEG = mediaItem.filename;
-
-        if (!mediaItem.filename.toLowerCase().match(/(jpg|jpeg)/)) {
-          filenameJPEG = mediaItem.filename.replace(/\.[^/.]+$/, ".jpg");
-        }
-
-        const imagePath = path.join(imageDirectory, filenameJPEG);
         const writer = fs.createWriteStream(imagePath);
 
         response.data.pipe(writer);
 
-        writer.on("finish", () => resolve({ imagePath, filenameJPEG }));
+        writer.on("finish", () =>
+          resolve({
+            id,
+            imagePath,
+            filenameJPEG,
+            state: "success",
+          })
+        );
         writer.on("error", e =>
-          reject(
-            new Error(
-              `Failed to write image to path: ${imagePath}\nDue to error:\n${e}`
-            )
-          )
+          resolve({
+            id,
+            imagePath,
+            filenameJPEG,
+            error: e.message,
+            state: "error",
+          })
         );
       })
       .catch(e => {
@@ -63,26 +116,31 @@ const downloadImageToFile = (
         if (e instanceof Error) {
           ({ message } = e);
         }
-        reject(new Error(`Failed to fetch image due to error:\n${message}`));
+        resolve({
+          id,
+          imagePath,
+          filenameJPEG,
+          error: message,
+          state: "error",
+        });
       });
   });
 
 /**
  * Uploads an image to the Ghost blog from a file in the local filesystem
- * @param imagePath the path to the file to upload
- * @param filenameJPEG the filename to use when appending the data to the FormData object
- * for upload
+ * @param downloadImageSuccess a {@link DownloadImageSuccess} object
  * @param ghostAPIToken a valid Ghost API token
  * @param ghostAdminAPIURL the Ghost Admin API URL
- * @returns a Promise that resolves to a string which is the uploaded image URL
+ * @returns a Promise that resolves to an {@link UploadImageResult} object
  */
 const uploadImageFromFile = (
-  imagePath: string,
-  filenameJPEG: string,
+  downloadImageSuccess: DownloadImageSuccess,
   ghostAPIToken: string,
   ghostAdminAPIURL: string
-): Promise<string> =>
-  new Promise((resolve, reject) => {
+): Promise<UploadImageResult> =>
+  new Promise(resolve => {
+    const { imagePath, filenameJPEG } = downloadImageSuccess;
+
     fs.promises
       .readFile(imagePath)
       .then(file => {
@@ -103,80 +161,75 @@ const uploadImageFromFile = (
           },
         })
           .then(result => {
-            resolve(result.data.images[0].url);
-          })
-          .catch(e => {
-            let message = "";
-            if (e instanceof Error) {
-              ({ message } = e);
+            const ghostImageURL = result?.data?.images?.[0]?.url ?? null;
+
+            if (typeof ghostImageURL !== "string") {
+              resolve({
+                ...downloadImageSuccess,
+                state: "error",
+                error: "Could not parse Ghost image URL from response",
+                httpStatus: result.status,
+                failedTask: "parseResponse",
+              });
             }
-            reject(
-              new Error(
-                `Failed to upload file to Ghost from path ${imagePath} due to error:\n${message}`
-              )
-            );
+
+            resolve({
+              ...downloadImageSuccess,
+              httpStatus: result.status,
+              ghostImageURL,
+            });
+          })
+          .catch((e: AxiosError) => {
+            const { message, status } = e;
+
+            resolve({
+              ...downloadImageSuccess,
+              state: "error",
+              error: message,
+              failedTask: "uploadImage",
+              httpStatus: status,
+            });
           });
       })
       .catch(e => {
-        let message = "";
+        let message = "Unknown error when reading image file";
         if (e instanceof Error) {
           ({ message } = e);
         }
-        reject(
-          new Error(
-            `Failed to read file from path ${imagePath} due to error:\n${message}`
-          )
-        );
+        resolve({
+          ...downloadImageSuccess,
+          state: "error",
+          error: message,
+          failedTask: "readFile",
+        });
       });
   });
 
-/**
- * @param accessToken the Google Photos access token
- * @param ghostAPIToken a valid Ghost API token
- * @param ghostAdminAPIURL the Ghost Admin API URL
- * @param mediaItem the Media Item which will be downloaded to a file, then uploaded to the
- * Ghost blog
- * @returns a Promise that resolves to a string which is the URL of the uploaded image in our Ghost
- * blog storage (which was set up with Backblaze B2 in the Ghost config)
- */
-const processImage = async (
-  accessToken: string,
-  ghostAPIToken: string,
-  ghostAdminAPIURL: string,
-  mediaItem: GooglePhotosMediaItem
-): Promise<string> => {
-  const { imagePath, filenameJPEG } = await downloadImageToFile(
-    accessToken,
-    mediaItem
-  );
-
-  const ghostImageURL = await uploadImageFromFile(
-    imagePath,
-    filenameJPEG,
-    ghostAPIToken,
-    ghostAdminAPIURL
-  );
-
-  return ghostImageURL;
-};
-
 interface UploadToGhostInput {
   /**
-   * the Google Photos access token
+   * The Google Photos access token
    */
   accessToken: string;
   /**
-   * the Ghost Admin API key
+   * The Ghost Admin API key
    */
   ghostAdminAPIKey: string;
   /**
-   * the Ghost Admin API URL
+   * The Ghost Admin API URL
    */
   ghostAdminAPIURL: string;
   /**
-   * the array of post details with their respective media items
+   * The array of post details with their respective media items
    */
   detailsWithMediaItems: CreatePostDetailWithMediaItems[];
+  /**
+   * The max height to use when downloading the image from Google Photos
+   */
+  imageMaxHeight: number;
+  /**
+   * The max width to use when downloading the image from Google Photos
+   */
+  imageMaxWidth: number;
 }
 
 /**
@@ -188,9 +241,10 @@ export const uploadToGhost = async ({
   ghostAdminAPIKey,
   ghostAdminAPIURL,
   detailsWithMediaItems,
+  imageMaxHeight,
+  imageMaxWidth,
 }: UploadToGhostInput): Promise<PostWithProcessedImages[]> => {
   const [id, secret] = ghostAdminAPIKey.split(":");
-
   const ghostAPIToken = jwt.sign({}, Buffer.from(secret, "hex"), {
     keyid: id,
     algorithm: "HS256",
@@ -204,66 +258,70 @@ export const uploadToGhost = async ({
     fs.mkdirSync(imageDirectory);
   }
 
-  const postsWithProcessedImages = detailsWithMediaItems.map(async details => {
-    const processImagePromises = details.mediaItems.map(
-      (mediaItem): Promise<ProcessedImage> => {
-        if (mediaItem.mimeType !== "image/jpeg") {
-          // We only want to download the data for images, not videos. If the mimeType is
-          // not an image, just resolve to the mediaItem without downloading image data.
-          return new Promise(resolve => {
-            resolve({ mediaItem, ghostImageURL: null });
-          });
-        }
-
-        return new Promise(resolve => {
-          processImage(accessToken, ghostAPIToken, ghostAdminAPIURL, mediaItem)
-            .then(ghostImageURL => {
-              resolve({ mediaItem, ghostImageURL });
-            })
-            .catch(e => {
-              let message = "";
-              if (e instanceof Error) {
-                ({ message } = e);
-              }
-              console.error("Could not process image due to error: ", message);
-              resolve({ mediaItem, ghostImageURL: null });
+  const postsWithProcessedImages = detailsWithMediaItems.map(details =>
+    albumQueue.add<PostWithProcessedImages>(async () => {
+      const processImagePromises = details.mediaItems.map(
+        (mediaItem): Promise<ProcessedImage | void> => {
+          if (mediaItem.mimeType !== "image/jpeg") {
+            // We only want to process the data for images, not videos.
+            return new Promise(resolve => {
+              resolve({
+                mediaItem,
+                downloadImageResult: null,
+                uploadImageResult: null,
+              });
             });
-        });
-      }
-    );
+          }
 
-    const processImagePromiseResults = Array.from(
-      await Promise.allSettled(processImagePromises)
-    );
+          return imageQueue.add<ProcessedImage>(
+            () =>
+              new Promise<ProcessedImage>(resolve => {
+                downloadImageToFile({
+                  accessToken,
+                  mediaItem,
+                  imageMaxHeight,
+                  imageMaxWidth,
+                }).then(downloadImageResult => {
+                  if (downloadImageResult.state === "error") {
+                    resolve({
+                      mediaItem,
+                      downloadImageResult,
+                      uploadImageResult: null,
+                    });
+                  } else {
+                    uploadImageFromFile(
+                      downloadImageResult,
+                      ghostAPIToken,
+                      ghostAdminAPIURL
+                    ).then(uploadImageResult => {
+                      resolve({
+                        mediaItem,
+                        downloadImageResult,
+                        uploadImageResult,
+                      });
+                    });
+                  }
+                });
+              })
+          );
+        }
+      );
 
-    // Delete temporary /images directory
-    // fs.rmSync(imageDirectory, { recursive: true, force: true });
+      const processedImages = Array.from(
+        await Promise.all(processImagePromises)
+      ).filter(value => value !== undefined) as ProcessedImage[];
 
-    const processedImages = processImagePromiseResults.reduce((acc, result) => {
-      if (result.status === "fulfilled") {
-        acc.push(result.value);
-      }
+      // Delete temporary /images directory
+      fs.rmSync(imageDirectory, { recursive: true, force: true });
 
-      return acc;
-    }, [] as ProcessedImage[]);
-
-    return {
-      ...details,
-      processedImages,
-    };
-  });
-
-  const processedPostResults = await Promise.allSettled(
-    postsWithProcessedImages
+      return {
+        ...details,
+        processedImages,
+      };
+    })
   );
 
-  const posts = processedPostResults.reduce((acc, result) => {
-    if (result.status === "fulfilled") {
-      acc.push(result.value);
-    }
-
-    return acc;
-  }, [] as PostWithProcessedImages[]);
-
-  return posts;
+  return Array.from(await Promise.all(postsWithProcessedImages)).filter(
+    value => value !== undefined
+  ) as PostWithProcessedImages[];
 };

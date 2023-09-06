@@ -11,10 +11,6 @@ export interface GooglePhotosAlbum {
   title: string;
 }
 
-export interface ModifiedGooglePhotosAlbum extends GooglePhotosAlbum {
-  cleanedTitle: string;
-}
-
 export interface GooglePhotosMediaItem {
   id: string;
   baseUrl: string;
@@ -23,23 +19,65 @@ export interface GooglePhotosMediaItem {
   description?: string;
 }
 
-export interface ModifiedGooglePhotosAlbumWithMediaItems
-  extends GooglePhotosAlbum {
-  cleanedTitle: string;
-  mediaItems: GooglePhotosMediaItem[];
+interface ProcessImageDetails {
+  /**
+   * The Google Photos MediaItem ID to process
+   */
+  id: string;
+  /**
+   * The path of the downloaded image
+   */
+  imagePath: string;
+  /**
+   * The filename, edited (if necessary) to use .jpg or .jpeg file extension
+   */
+  filenameJPEG: string;
 }
 
-export interface GhostPost {
-  title: string;
+export interface DownloadImageSuccess extends ProcessImageDetails {
+  state: "success";
 }
+
+export interface DownloadImageError extends ProcessImageDetails {
+  state: "error";
+  error: string;
+}
+
+export type DownloadImageResult = DownloadImageSuccess | DownloadImageError;
+
+export interface UploadImageSuccess extends DownloadImageSuccess {
+  httpStatus?: number;
+  /**
+   * The URL of the uploaded image in the Ghost blog media storage
+   */
+  ghostImageURL: string;
+}
+
+export type UploadImageError = Omit<DownloadImageSuccess, "state"> & {
+  state: "error";
+  error: string;
+  httpStatus?: number;
+  failedTask: "readFile" | "uploadImage" | "parseResponse";
+};
+
+export type UploadImageResult =
+  | UploadImageSuccess
+  | DownloadImageError
+  | UploadImageError;
 
 export interface ProcessedImage {
+  /**
+   * The Google Photos MediaItem that was processed.
+   */
   mediaItem: GooglePhotosMediaItem;
-  ghostImageURL: string | null;
-}
-
-export interface AlbumWithProcessedImages extends ModifiedGooglePhotosAlbum {
-  processedImages: ProcessedImage[];
+  /**
+   * The result of downloading the image.
+   */
+  downloadImageResult: DownloadImageResult | null;
+  /**
+   * The result of uploading the image. If the image was not downloaded, this will be null.
+   */
+  uploadImageResult: UploadImageResult | null;
 }
 
 export interface Post {
@@ -94,16 +132,34 @@ export interface PostDetails
 }
 
 export interface CreatedPostDetails extends PostDetails {
+  state: "success";
   albumId: string;
 }
 
-export type AlbumPostResult = Post & CreatedPostDetails;
+export type AlbumPostSuccess = Post & CreatedPostDetails;
 
-export type AlbumCSVRow = Pick<AlbumPostResult, "albumId" | "title" | "url">;
+export type AlbumPostError = PostDetails & {
+  state: "error";
+  error: string;
+};
+
+export type AlbumPostResult = AlbumPostSuccess | AlbumPostError;
+
+export type AlbumCSVRow = {
+  albumId?: string;
+  title?: string;
+  url?: string;
+  state: "success" | "error";
+  error?: string;
+};
 
 export interface ImageCSVRow extends GooglePhotosMediaItem {
   albumId: string;
-  ghostImageURL: null | string;
+  downloadState: "success" | "error" | "unknown";
+  downloadError?: string;
+  uploadState: "success" | "error" | "unknown";
+  uploadError?: string;
+  ghostImageURL?: string;
 }
 
 export type AlbumPostCSVRow = AlbumCSVRow & { images: ImageCSVRow[] };

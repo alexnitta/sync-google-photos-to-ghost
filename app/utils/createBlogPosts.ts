@@ -6,6 +6,7 @@ import type {
   PostWithProcessedImages,
   AlbumPostResult,
   AlbumPostCSVRow,
+  ProcessedImage,
 } from "~/types";
 
 import { albumPostsToCSVData } from "./albumPostsToCSVData";
@@ -27,41 +28,53 @@ const addPostForAlbum = async (
       }
     );
 
-    console.log("post: ", JSON.stringify(post, null, 4));
-
     return {
       albumId,
       elements,
       processedImages,
+      state: "success",
       ...post,
     };
   } catch (e) {
-    let message = "";
+    let message = "Unknown error when adding post";
     if (e instanceof Error) {
       ({ message } = e);
     }
 
-    throw new Error(`Caught error when adding post:\n${message}`);
+    return {
+      ...postDetails,
+      state: "error",
+      error: message,
+    };
   }
 };
 
 const getPostDetails = (post: PostWithProcessedImages): PostDetails => {
   const { postTitle, processedImages } = post;
 
-  const elements = processedImages.map(processedImage => {
-    const img = `<img src="${processedImage.ghostImageURL}" />`;
+  const elements = processedImages.reduce(
+    (acc: string[], processedImage: ProcessedImage): string[] => {
+      const { mediaItem, uploadImageResult } = processedImage;
 
-    if (
-      processedImage.mediaItem.description &&
-      processedImage.mediaItem.description.length > 0
-    ) {
-      const figcaption = `<figcaption>${processedImage.mediaItem.description}</figcaption>`;
+      if (uploadImageResult === null || uploadImageResult?.state === "error") {
+        return acc;
+      }
 
-      return `<figure>${img}${figcaption}</figure>`;
-    }
+      const { ghostImageURL } = uploadImageResult;
 
-    return img;
-  });
+      const img = `<img src="${ghostImageURL}" />`;
+
+      if (mediaItem.description && mediaItem.description.length > 0) {
+        const figcaption = `<figcaption>${processedImage.mediaItem.description}</figcaption>`;
+        acc.push(`<figure>${img}${figcaption}</figure>`);
+      } else {
+        acc.push(img);
+      }
+
+      return acc;
+    },
+    [] as string[]
+  );
 
   return { ...post, title: postTitle, elements };
 };
@@ -85,28 +98,11 @@ export const createBlogPosts = async ({
 
   const postDetails = postsWithImages.map(getPostDetails);
 
-  console.log("postDetails: ", JSON.stringify(postDetails, null, 4));
-
   const addPostPromises = postDetails.map(postDetails =>
     addPostForAlbum(api, postDetails)
   );
 
-  const addPostPromiseResults = Array.from(
-    await Promise.allSettled(addPostPromises)
-  );
-
-  const addedPosts = addPostPromiseResults.reduce((acc, result) => {
-    if (result.status === "fulfilled") {
-      acc.push(result.value);
-    } else {
-      console.error(
-        "Failed to add post; result: ",
-        JSON.stringify(result, null, 4)
-      );
-    }
-
-    return acc;
-  }, [] as AlbumPostResult[]);
+  const addedPosts = Array.from(await Promise.all(addPostPromises));
 
   return addedPosts.map(albumPostsToCSVData);
 };

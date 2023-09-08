@@ -13,6 +13,14 @@ Deployment has been configured for Fly.io by using `npx create-remix@latest` and
 You must create a `.env` file to run this application locally. It should contain the following:
 
 ```dotenv
+
+# These details are used to upload files to Backblaze B2. For more on how to create application
+# keys, see: https://www.backblaze.com/docs/cloud-storage-application-keys
+BACKBLAZE_B2_BUCKET_NAME="replace_me"
+BACKBLAZE_B2_BUCKET_REGION="replace_me"
+BACKBLAZE_B2_ACCESS_KEY_ID="replace_me"
+BACKBLAZE_B2_SECRET_ACCESS_KEY="replace_me"
+
 # Set these up by adding a "Custom integration" to your Ghost blog, which you can do in the blog
 # settings in the admin dashboard.
 GHOST_ADMIN_API_KEY="replace_me"

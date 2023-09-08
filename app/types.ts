@@ -163,3 +163,22 @@ export interface ImageCSVRow extends GooglePhotosMediaItem {
 }
 
 export type AlbumPostCSVRow = AlbumCSVRow & { images: ImageCSVRow[] };
+
+export interface BackblazeB2Config {
+  /**
+   * The name of the Backblaze B2 bucket to upload images to
+   */
+  bucket: string;
+  /**
+   * The region of the Backblaze B2 bucket
+   */
+  bucketRegion: string;
+  /**
+   * An access key ID for a Backblaze B2 application key
+   */
+  accessKeyID: string;
+  /**
+   * Secret access key for a Backblaze B2 application key
+   */
+  secretAccessKey: string;
+}

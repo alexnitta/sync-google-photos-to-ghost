@@ -1,15 +1,15 @@
-import jwt from "jsonwebtoken";
 import fs from "fs";
 import PQueue from "p-queue";
 
 import type {
+  BackblazeB2Config,
   CreatePostDetailWithMediaItems,
   ProcessedImage,
   PostWithProcessedImages,
 } from "~/types";
 
 import { imageDirectory } from "./constants";
-import { downloadImageToFile, uploadImageFromFileToGhost } from ".";
+import { downloadImageToFile, uploadImageFromFileToB2 } from ".";
 
 /** If this app were serving more than one user, we would want
  * to set up the queues on a per-user basis, but we don't need to do that yet.
@@ -30,19 +30,15 @@ const imageQueue = new PQueue({
   intervalCap: 1,
 });
 
-interface UploadToGhostInput {
+interface UploadToB2Input {
   /**
    * The Google Photos access token
    */
   accessToken: string;
   /**
-   * The Ghost Admin API key
+   * The Backblaze B2 configuration
    */
-  ghostAdminAPIKey: string;
-  /**
-   * The Ghost Admin API URL
-   */
-  ghostAdminAPIURL: string;
+  backblazeB2Config: BackblazeB2Config;
   /**
    * The array of post details with their respective media items
    */
@@ -58,26 +54,18 @@ interface UploadToGhostInput {
 }
 
 /**
- * Downloads an image to a file in the local filesystem and uploads it to the Ghost blog.
+ * Downloads an image to a file in the local filesystem and uploads it to the Backblaze B2 bucket.
  * @param input {@link UploadToGhostInput}
- * @returns an array of posts where each contains the result of uploading its media items to Ghost
+ * @returns an array of posts where each contains the result of uploading its media items to the
+ * bucket
  */
-export const uploadToGhost = async ({
+export const uploadToB2 = async ({
   accessToken,
-  ghostAdminAPIKey,
-  ghostAdminAPIURL,
+  backblazeB2Config,
   detailsWithMediaItems,
   imageMaxHeight,
   imageMaxWidth,
-}: UploadToGhostInput): Promise<PostWithProcessedImages[]> => {
-  const [id, secret] = ghostAdminAPIKey.split(":");
-  const ghostAPIToken = jwt.sign({}, Buffer.from(secret, "hex"), {
-    keyid: id,
-    algorithm: "HS256",
-    expiresIn: "5m",
-    audience: `/admin/`,
-  });
-
+}: UploadToB2Input): Promise<PostWithProcessedImages[]> => {
   // Create temporary /images directory to contain downloaded images
 
   if (!fs.existsSync(imageDirectory)) {
@@ -115,10 +103,9 @@ export const uploadToGhost = async ({
                       uploadImageResult: null,
                     });
                   } else {
-                    uploadImageFromFileToGhost(
+                    uploadImageFromFileToB2(
                       downloadImageResult,
-                      ghostAPIToken,
-                      ghostAdminAPIURL
+                      backblazeB2Config
                     ).then(uploadImageResult => {
                       resolve({
                         mediaItem,

@@ -11,7 +11,13 @@ import CSVDownloader from "react-csv-downloader";
 import { z } from "zod";
 
 import { authenticator } from "~/services/auth.server";
-import { uploadToGhost, addMediaItems, createBlogPosts } from "~/utils";
+import {
+  // uploadToGhost,
+  uploadToB2,
+  addMediaItems,
+  createBlogPosts,
+  getEnvVar,
+} from "~/utils";
 import type {
   GooglePhotosAlbum,
   CreatePostDetail,
@@ -134,33 +140,51 @@ export const action = async ({ request }: ActionArgs) => {
     [] as CreatePostDetail[]
   );
 
+  console.log(
+    "createPostDetails: ",
+    JSON.stringify(createPostDetails, null, 4)
+  );
+
   const { accessToken } = user;
-  const ghostAdminAPIKey: string | null =
-    process.env?.GHOST_ADMIN_API_KEY ?? null;
-  const ghostAdminAPIURL: string | null =
-    process.env?.GHOST_ADMIN_API_URL ?? null;
-
-  if (ghostAdminAPIKey === null) {
-    throw typedjson({
-      message: "GHOST_ADMIN_API_KEY is not defined in process.env",
-    });
-  }
-
-  if (ghostAdminAPIURL === null) {
-    throw typedjson({
-      message: "GHOST_ADMIN_API_URL is not defined in process.env",
-    });
-  }
 
   const detailsWithMediaItems = await addMediaItems({
     accessToken,
     createPostDetails,
   });
 
-  const postsWithImages = await uploadToGhost({
+  const ghostAdminAPIKey = getEnvVar("GHOST_ADMIN_API_KEY");
+  const ghostAdminAPIURL = getEnvVar("GHOST_ADMIN_API_URL");
+
+  // The commented code below uses the Ghost Admin API to upload images to the blog.
+
+  // const postsWithImages = await uploadToGhost({
+  //   accessToken,
+  //   ghostAdminAPIKey,
+  //   ghostAdminAPIURL,
+  //   detailsWithMediaItems,
+  //   // Max display height in the blog is about 1000px, and if the pixel density is 3x, we need
+  //   // max height of 3 x 1000 = 3000px
+  //   imageMaxHeight: 3000,
+  //   // Max display width in the blog is 720px, and if the pixel density is 3x, we need
+  //   // max width of 3 x 720 = 2160px
+  //   imageMaxWidth: 2160,
+  // });
+
+  // The code below uploads images to Backblaze B2 instead of using the Ghost Admin API.
+
+  const bucket = getEnvVar("BACKBLAZE_B2_BUCKET_NAME");
+  const bucketRegion = getEnvVar("BACKBLAZE_B2_BUCKET_REGION");
+  const accessKeyID = getEnvVar("BACKBLAZE_B2_ACCESS_KEY_ID");
+  const secretAccessKey = getEnvVar("BACKBLAZE_B2_SECRET_ACCESS_KEY");
+
+  const postsWithImages = await uploadToB2({
     accessToken,
-    ghostAdminAPIKey,
-    ghostAdminAPIURL,
+    backblazeB2Config: {
+      bucket: bucket,
+      bucketRegion,
+      accessKeyID,
+      secretAccessKey,
+    },
     detailsWithMediaItems,
     // Max display height in the blog is about 1000px, and if the pixel density is 3x, we need
     // max height of 3 x 1000 = 3000px
@@ -169,6 +193,8 @@ export const action = async ({ request }: ActionArgs) => {
     // max width of 3 x 720 = 2160px
     imageMaxWidth: 2160,
   });
+
+  console.log("postsWithImages: ", JSON.stringify(postsWithImages, null, 4));
 
   const albumPostResults = await createBlogPosts({
     ghostAdminAPIKey,

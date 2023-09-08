@@ -15,16 +15,27 @@ You must create a `.env` file to run this application locally. It should contain
 ```dotenv
 
 # These details are used to upload files to Backblaze B2. For more on how to create application
-# keys, see: https://www.backblaze.com/docs/cloud-storage-application-keys
+# keys, see: https://www.backblaze.com/docs/cloud-storage-application-keys.
+# The endpoint is available on the bucket settings shown in the Backblaze dashboard UI.
+BACKBLAZE_B2_ACCESS_KEY_ID="replace_me"
 BACKBLAZE_B2_BUCKET_NAME="replace_me"
 BACKBLAZE_B2_BUCKET_REGION="replace_me"
-BACKBLAZE_B2_ACCESS_KEY_ID="replace_me"
+BACKBLAZE_B2_ENDPOINT="replace_me"
 BACKBLAZE_B2_SECRET_ACCESS_KEY="replace_me"
 
 # Set these up by adding a "Custom integration" to your Ghost blog, which you can do in the blog
 # settings in the admin dashboard.
 GHOST_ADMIN_API_KEY="replace_me"
 GHOST_ADMIN_API_URL="replace_me"
+
+# A URL prefix to use for the uploaded images. If passed in, it will be prepended to the key
+# to create the URL. If not passed in, the URL will read from the B2 upload result. This is
+# useful if you want to use a CDN like Cloudflare to serve the images, rather than serving them
+# directly from Backblaze B2.
+# This is typically set up like: `https://images.<domain>.com/file/<bucketName>`,
+# assuming that you've set up the subdomain `images.<domain>.com` to point to the B2 bucket in
+# your CDN's settings.
+GHOST_IMAGE_URL_PREFIX="replace_me"
 
 # Follow these instructions to set up an OAuth 2.0 client ID:
 # https://developers.google.com/photos/library/guides/get-started

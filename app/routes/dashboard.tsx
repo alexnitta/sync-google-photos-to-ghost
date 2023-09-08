@@ -9,6 +9,7 @@ import {
 } from "remix-typedjson";
 import CSVDownloader from "react-csv-downloader";
 import { z } from "zod";
+import snakeCase from "just-snake-case";
 
 import { authenticator } from "~/services/auth.server";
 import {
@@ -172,20 +173,24 @@ export const action = async ({ request }: ActionArgs) => {
 
   // The code below uploads images to Backblaze B2 instead of using the Ghost Admin API.
 
-  const bucket = getEnvVar("BACKBLAZE_B2_BUCKET_NAME");
-  const bucketRegion = getEnvVar("BACKBLAZE_B2_BUCKET_REGION");
   const accessKeyID = getEnvVar("BACKBLAZE_B2_ACCESS_KEY_ID");
+  const bucket = getEnvVar("BACKBLAZE_B2_BUCKET_NAME");
+  const region = getEnvVar("BACKBLAZE_B2_BUCKET_REGION");
+  const endpoint = getEnvVar("BACKBLAZE_B2_ENDPOINT");
   const secretAccessKey = getEnvVar("BACKBLAZE_B2_SECRET_ACCESS_KEY");
+  const ghostImageURLPrefix = getEnvVar("GHOST_IMAGE_URL_PREFIX");
 
   const postsWithImages = await uploadToB2({
     accessToken,
     backblazeB2Config: {
-      bucket: bucket,
-      bucketRegion,
       accessKeyID,
+      bucket,
+      region,
+      endpoint,
       secretAccessKey,
     },
     detailsWithMediaItems,
+    ghostImageURLPrefix,
     // Max display height in the blog is about 1000px, and if the pixel density is 3x, we need
     // max height of 3 x 1000 = 3000px
     imageMaxHeight: 3000,
@@ -193,8 +198,6 @@ export const action = async ({ request }: ActionArgs) => {
     // max width of 3 x 720 = 2160px
     imageMaxWidth: 2160,
   });
-
-  console.log("postsWithImages: ", JSON.stringify(postsWithImages, null, 4));
 
   const albumPostResults = await createBlogPosts({
     ghostAdminAPIKey,
@@ -231,6 +234,12 @@ export default function Index() {
               a new Ghost blog post. You can edit the blog post title in the
               right column.
             </p>
+            <p>
+              Note that the blog post title will be used to generate the file
+              path in the backend file storage, along with the image filename.
+              If you submit the form twice with the same blog post title, the
+              images will be overwritten.
+            </p>
             <div style={{ width: 880 }}>
               <table
                 className="grid-table"
@@ -238,29 +247,33 @@ export default function Index() {
                   gridTemplateColumns: "80px 400px 400px",
                 }}
               >
-                <tr style={{ display: "contents" }}>
-                  <th>Import</th>
-                  <th>Album Title</th>
-                  <th>as Blog Post Title</th>
-                </tr>
-                {albums.map((album, index) => (
-                  <tr key={album.id} style={{ display: "contents" }}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        value={album.id}
-                        name={`${index}.albumId`}
-                        id={`${index}.id`}
-                      ></input>
-                    </td>
-                    <td>
-                      <label htmlFor={album.id}>{album.title}</label>
-                    </td>
-                    <td style={{ width: "100%", paddingRight: 10 }}>
-                      <PostTitle album={album} index={index} />
-                    </td>
+                <thead style={{ display: "contents" }}>
+                  <tr style={{ display: "contents" }}>
+                    <th>Import</th>
+                    <th>Album Title</th>
+                    <th>as Blog Post Title</th>
                   </tr>
-                ))}
+                </thead>
+                <tbody style={{ display: "contents" }}>
+                  {albums.map((album, index) => (
+                    <tr key={album.id} style={{ display: "contents" }}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          value={album.id}
+                          name={`${index}.albumId`}
+                          id={`${index}.id`}
+                        ></input>
+                      </td>
+                      <td>
+                        <label htmlFor={album.id}>{album.title}</label>
+                      </td>
+                      <td style={{ width: "100%", paddingRight: 10 }}>
+                        <PostTitle album={album} index={index} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           </>
@@ -292,41 +305,47 @@ export default function Index() {
                 gridTemplateColumns: "400px 100px 160px",
               }}
             >
-              <tr style={{ display: "contents" }}>
-                <th>Blog Post</th>
-                <th>Album</th>
-                <th>Images</th>
-              </tr>
-              {albumPostResults.map(
-                ({ albumId, url, title, images }, index) => (
-                  <tr key={albumId} style={{ display: "contents" }}>
-                    <td style={{ width: "100%" }}>
-                      <a href={url} target="_blank" rel="noreferrer">
-                        {title}
-                      </a>
-                    </td>
-                    <td>
-                      <CSVDownloader
-                        filename={`album_${albumId}`}
-                        extension=".csv"
-                        datas={[{ albumId, url, title }]}
-                      >
-                        <button>Album CSV</button>
-                      </CSVDownloader>
-                    </td>
-                    <td>
-                      <CSVDownloader
-                        filename={`album_${albumId}_images`}
-                        extension=".csv"
-                        // @ts-ignore
-                        datas={images}
-                      >
-                        <button>{`Images CSV: ${images.length} rows`}</button>
-                      </CSVDownloader>
-                    </td>
-                  </tr>
-                )
-              )}
+              <thead style={{ display: "contents" }}>
+                <tr style={{ display: "contents" }}>
+                  <th>Blog Post</th>
+                  <th>Album</th>
+                  <th>Images</th>
+                </tr>
+              </thead>
+              <tbody style={{ display: "contents" }}>
+                {albumPostResults.map(
+                  ({ albumId, url, title, images }, index) => (
+                    <tr key={albumId} style={{ display: "contents" }}>
+                      <td style={{ width: "100%" }}>
+                        <a href={url} target="_blank" rel="noreferrer">
+                          {title}
+                        </a>
+                      </td>
+                      <td>
+                        <CSVDownloader
+                          filename={snakeCase(`${title ?? "unknown_post"}`)}
+                          extension=".csv"
+                          datas={[{ albumId, url, title }]}
+                        >
+                          <button>Album CSV</button>
+                        </CSVDownloader>
+                      </td>
+                      <td>
+                        <CSVDownloader
+                          filename={snakeCase(
+                            `${title ?? "unknown_post"}_images`
+                          )}
+                          extension=".csv"
+                          // @ts-ignore
+                          datas={images}
+                        >
+                          <button>{`Images CSV: ${images.length} rows`}</button>
+                        </CSVDownloader>
+                      </td>
+                    </tr>
+                  )
+                )}
+              </tbody>
             </table>
           </div>
         </>

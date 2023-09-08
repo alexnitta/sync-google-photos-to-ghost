@@ -1,5 +1,6 @@
 import fs from "fs";
 import PQueue from "p-queue";
+import snakeCase from "just-snake-case";
 
 import type {
   BackblazeB2Config,
@@ -44,6 +45,13 @@ interface UploadToB2Input {
    */
   detailsWithMediaItems: CreatePostDetailWithMediaItems[];
   /**
+   * The URL prefix to use for the uploaded image. If passed in, it will be prepended to the key
+   * to create the URL. If not passed in, the URL will read from the B2 upload result. This is
+   * useful if you want to use a CDN like Cloudflare to serve the images, rather than serving them
+   * directly from Backblaze B2.
+   */
+  ghostImageURLPrefix?: string;
+  /**
    * The max height to use when downloading the image from Google Photos
    */
   imageMaxHeight: number;
@@ -63,6 +71,7 @@ export const uploadToB2 = async ({
   accessToken,
   backblazeB2Config,
   detailsWithMediaItems,
+  ghostImageURLPrefix,
   imageMaxHeight,
   imageMaxWidth,
 }: UploadToB2Input): Promise<PostWithProcessedImages[]> => {
@@ -90,6 +99,12 @@ export const uploadToB2 = async ({
           return imageQueue.add<ProcessedImage>(
             () =>
               new Promise<ProcessedImage>(resolve => {
+                // Create a key prefix for the image, which is combined with the JPEG filename to
+                // create the path where the file will be stored in the bucket.
+                const keyPrefix = `remix_uploads/${snakeCase(
+                  details.postTitle
+                )}`;
+
                 downloadImageToFile({
                   accessToken,
                   mediaItem,
@@ -103,10 +118,12 @@ export const uploadToB2 = async ({
                       uploadImageResult: null,
                     });
                   } else {
-                    uploadImageFromFileToB2(
+                    uploadImageFromFileToB2({
                       downloadImageResult,
-                      backblazeB2Config
-                    ).then(uploadImageResult => {
+                      backblazeB2Config,
+                      ghostImageURLPrefix,
+                      keyPrefix,
+                    }).then(uploadImageResult => {
                       resolve({
                         mediaItem,
                         downloadImageResult,

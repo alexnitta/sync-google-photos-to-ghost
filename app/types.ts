@@ -172,7 +172,12 @@ export interface BackblazeB2Config {
   /**
    * The region of the Backblaze B2 bucket
    */
-  bucketRegion: string;
+  region: string;
+  /**
+   * The endpoint of the Backblaze B2 bucket - this is shown in the B2 bucket settings, and it is
+   * constructed like `https://s3.<bucketRegion>.backblazeb2.com`
+   */
+  endpoint: string;
   /**
    * An access key ID for a Backblaze B2 application key
    */

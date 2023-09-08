@@ -8,19 +8,45 @@ import type {
   BackblazeB2Config,
 } from "~/types";
 
+interface UploadImageFromFileToB2Input {
+  /**
+   * The result of downloading the image.
+   */
+  downloadImageResult: DownloadImageSuccess;
+  /**
+   * The Backblaze B2 configuration
+   */
+  backblazeB2Config: BackblazeB2Config;
+  /**
+   * A prefix to use for the key in the bucket (i.e. the filename prefix)
+   */
+  keyPrefix: string;
+  /**
+   * The URL prefix to use for the uploaded image. If passed in, it will be prepended to the key
+   * to create the URL. If not passed in, the URL will read from the B2 upload result. This is
+   * useful if you want to use a CDN like Cloudflare to serve the images, rather than serving them
+   * directly from Backblaze B2.
+   */
+  ghostImageURLPrefix?: string;
+}
+
 /**
  * Uploads an image to the Backblaze B2 bucket from a file in the local filesystem
- * @param downloadImageSuccess a {@link DownloadImageSuccess} object
- * @param backblazeB2Config a {@link BackblazeB2Config} object
+ * @param input a {@link UploadImageFromFileToB2Input} object
  * @returns a Promise that resolves to an {@link UploadImageResult} object
  */
-export const uploadImageFromFileToB2 = (
-  downloadImageSuccess: DownloadImageSuccess,
-  backblazeB2Config: BackblazeB2Config
-): Promise<UploadImageResult> =>
+export const uploadImageFromFileToB2 = ({
+  downloadImageResult,
+  backblazeB2Config,
+  keyPrefix,
+  ghostImageURLPrefix,
+}: UploadImageFromFileToB2Input): Promise<UploadImageResult> =>
   new Promise(resolve => {
-    const { imagePath, filenameJPEG } = downloadImageSuccess;
-    const { bucket, ...clientConfig } = backblazeB2Config;
+    const { imagePath, filenameJPEG } = downloadImageResult;
+    const { bucket, region, endpoint, accessKeyID, secretAccessKey } =
+      backblazeB2Config;
+
+    const key = `${keyPrefix}/${filenameJPEG}`;
 
     fs.promises
       .readFile(imagePath)
@@ -28,35 +54,38 @@ export const uploadImageFromFileToB2 = (
         uploadImageToB2({
           body: file,
           bucket,
-          clientConfig,
-          // TODO: use an appropriate key
-          key: `test_upload/${filenameJPEG}`,
+          clientConfig: {
+            region,
+            endpoint,
+            credentials: {
+              accessKeyId: accessKeyID,
+              secretAccessKey,
+            },
+          },
+          key,
         }).then(result => {
-          console.log(
-            "uploadImageToB2 result: ",
-            JSON.stringify(result, null, 4)
-          );
-
           if (!("Location" in result)) {
             resolve({
-              ...downloadImageSuccess,
+              ...downloadImageResult,
               state: "error",
               error: "Could not read Location in result of B2 upload",
               failedTask: "parseResponse",
             });
           } else {
-            const ghostImageURL = result.Location;
+            const ghostImageURL = ghostImageURLPrefix
+              ? `${ghostImageURLPrefix}/${key}`
+              : result.Location;
 
             if (typeof ghostImageURL !== "string") {
               resolve({
-                ...downloadImageSuccess,
+                ...downloadImageResult,
                 state: "error",
                 error: "Location is undefined in result of B2 upload",
                 failedTask: "parseResponse",
               });
             } else {
               resolve({
-                ...downloadImageSuccess,
+                ...downloadImageResult,
                 ghostImageURL,
               });
             }
@@ -69,7 +98,7 @@ export const uploadImageFromFileToB2 = (
           ({ message } = e);
         }
         resolve({
-          ...downloadImageSuccess,
+          ...downloadImageResult,
           state: "error",
           error: message,
           failedTask: "readFile",

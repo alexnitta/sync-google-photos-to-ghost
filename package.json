@@ -26,6 +26,7 @@
     "form-data": "^4.0.0",
     "isbot": "^3.6.8",
     "jsonwebtoken": "^9.0.0",
+    "just-snake-case": "^3.2.0",
     "p-queue": "^7.4.1",
     "react": "^18.2.0",
     "react-csv-downloader": "^2.9.1",

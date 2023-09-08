@@ -69,13 +69,15 @@ export const uploadImageToB2 = async ({
   queueSize,
   tags,
 }: UploadImageToB2Input): ReturnType<Upload["done"]> => {
+  console.log("key: ", JSON.stringify(key, null, 4));
+
   const parallelUploads3 = new Upload({
     client: new S3Client(clientConfig),
-    params: { Bucket: bucket, Key: key, Body: body },
-    tags,
-    queueSize,
-    partSize,
     leavePartsOnError,
+    params: { Bucket: bucket, Key: key, Body: body },
+    partSize,
+    queueSize,
+    tags,
   });
 
   if (onProgress) {
